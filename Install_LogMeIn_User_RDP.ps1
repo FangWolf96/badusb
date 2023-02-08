@@ -11,23 +11,28 @@ $LOGMEIN_INSTALLATION_FILE = "$env:USERPROFILE\Downloads\logmein.msi"
 $USER = "sys_admin"
 $PASS = "P@ssw0rd!!"
 
+# Logs Path
+$LOGS_FILE = "$PSScriptRoot\Install_LogMeIn_User_RDP.log"
 
 #########################################################
+
+Add-Type -AssemblyName PresentationFramework
+$ERRORS = $False
+
+$CURRENT_PRINCIPAL = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+$IS_ADMIN = $CURRENT_PRINCIPAL.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+If ($IS_ADMIN -eq $False) {
+    [System.Windows.MessageBox]::Show("This powershell script must be run as administrator! Exiting")
+    Exit
+}
 
 Function AddLog ($MSG) 
 {
     $DATE=Get-Date -Format "yyyy-MM-dd hh:mm"   
     Write-Host "$DATE - $MSG"
-}
 
-
-################## Elevate permissions in case of needed
-
-if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {
-    if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
-        $CommandLine = "-File `"" + $MyInvocation.MyCommand.Path + "`" " + $MyInvocation.UnboundArguments
-        Start-Process -FilePath PowerShell.exe -Verb Runas -ArgumentList $CommandLine
-    }
+    "$DATE - $MSG" | Out-File $LOGS_FILE -Append
 }
 
 ############### Install LogMe In
@@ -48,6 +53,7 @@ If (Test-Path $LOGMEIN_INSTALLATION_FILE)
 }
 Else
 {
+    $ERRORS = $True
     AddLog "Cannot install. NOT found installation file $LOGMEIN_INSTALLATION_FILE"
 }
 
@@ -63,6 +69,7 @@ try {
     Add-LocalGroupMember -Group "Remote Desktop Users" -Member $USER -ErrorAction Stop | Out-Null
 }
 catch {
+    $ERRORS = $True
     AddLog "Error creating $USER user ($_)"
 }
 
@@ -76,6 +83,7 @@ try {
     New-Item -Path $REGISTRY_KEY_PATH -Name $REGISTRY_KEY_NAME -Force -ErrorAction Stop | Out-Null
 }
 catch {
+    $ERRORS = $True
     AddLog "Error creating registry path `"$REGISTRY_KEY_PATH`" ($_)"
 }
 
@@ -83,6 +91,7 @@ try {
     New-ItemProperty -Path "$REGISTRY_KEY_PATH\$REGISTRY_KEY_NAME" -Name "$USER" -Value "0"  -PropertyType "DWORD" -ErrorAction Stop | Out-Null
 }
 catch {
+    $ERRORS = $True
     AddLog "Error creating `"$USER`" entry in the SpecialAccounts registry key ($_)"
 }
 
@@ -96,9 +105,19 @@ try {
 }
 catch
 {
+    $ERRORS = $True    
     AddLog "Error enabling RDP ($_)"
 }
 
-AddLog "Restarting computer in 5 seconds..."
-Start-Sleep 5
-Restart-Computer
+
+
+If ($ERRORS -eq $True)
+{
+    [System.Windows.MessageBox]::Show("Errors were found during the execution. Check the logs file ($LOGS_FILE)")
+}
+Else
+{
+    AddLog "Restarting computer in 5 seconds..."
+    Start-Sleep 5
+    Restart-Computer
+}
